@@ -7,7 +7,6 @@ def init
   asset "js/cucumber.js", file("js/cucumber.js",true)
 
   serialize_object_type :feature
-
   serialize_object_type :tag
 
   # Generates the requirements splash page with the 'requirements' template
@@ -22,47 +21,20 @@ def init
   serialize_feature_directories
 end
 
-#
-# The top-level feature directories. This is affected by the directories that YARD is told to parse.
-# All other features in sub-directories are contained under each of these top-level directories.
-#
-# @example Generating one feature directory
-#
-#     `yardoc 'example/**/*'`
-#
-# @example Generating two feature directories
-#
-#     `yardoc 'example/**/*' 'example2/**/*'`
-#
-# @return the feature directories at the root of the Cucumber Namespace.
-#
 def root_feature_directories
   @root_feature_directories ||= YARD::CodeObjects::Cucumber::CUCUMBER_NAMESPACE.children.find_all {|child| child.is_a?(YARD::CodeObjects::Cucumber::FeatureDirectory)}
 end
 
-#
-# Generate pages for the objects if there are objects of this type contained
-# within the Registry.
-#
 def serialize_object_type(type)
   objects = Registry.all(type.to_sym)
   Array(objects).each {|object| serialize(object) }
 end
 
-#
-# Generates pages for the feature directories found. Starting with all root-level feature
-# directories and then recursively finding all child feature directories.
-#
 def serialize_feature_directories
   serialize_feature_directories_recursively(root_feature_directories)
   root_feature_directories.each {|directory| serialize(directory) }
 end
 
-#
-# Generate a page for each Feature Directory. This is called recursively to
-# ensure that all feature directories contained as children are rendered to
-# pages.
-#
 def serialize_feature_directories_recursively(namespaces)
   namespaces.each do |namespace|
     Templates::Engine.with_serializer(namespace, options[:serializer]) do
@@ -73,15 +45,12 @@ def serialize_feature_directories_recursively(namespaces)
   end
 end
 
-# Generate feature list
-# @note this method is called automatically by YARD based on the menus defined in the layout
 def generate_feature_list
   features = Registry.all(:feature)
   features_ordered_by_name = features.sort {|x,y| x.value.to_s <=> y.value.to_s }
   generate_full_list features_ordered_by_name, :features
 end
 
-# Count scenarios for features
 def record_feature_scenarios(features)
   count_with_examples = 0
   features.each do |f|
@@ -90,18 +59,15 @@ def record_feature_scenarios(features)
   return count_with_examples
 end
 
-# Count scenarios for tags
 def record_tagged_scenarios(tags)
   scenario_count = 0
   count_with_examples = 0
   tags.each do |t|
-    scenario_count += t.all_scenarios.size
+    scenario_count += t.all_scenarios.size if t.respond_to?(:all_scenarios)
     count_with_examples += t.total_scenarios
   end
 end
 
-# Generate tag list
-# @note this method is called automatically by YARD based on the menus defined in the layout
 def generate_tag_list
   tags = Registry.all(:tag)
   tags_ordered_by_use = Array(tags).sort {|x,y| y.total_scenarios <=> x.total_scenarios }
@@ -111,24 +77,15 @@ def generate_tag_list
   generate_full_list tags_ordered_by_use, :tags
 end
 
-# Generate a step definition list
-# @note this menu is not automatically added until yard configuration has this menu added
-# See the layout template method that loads the menus
 def generate_stepdefinition_list
   generate_full_list YARD::Registry.all(:stepdefinition), :stepdefinitions,
     :list_title => "Step Definitions List"
 end
 
-# Generate a step list
-# @note this menu is not automatically added until yard configuration has this menu added
-# See the layout template method that loads the menus
 def generate_step_list
   generate_full_list YARD::Registry.all(:step), :steps
 end
 
-# Generate feature list
-# @note this menu is not automatically added until yard configuration has this menu added
-# See the layout template method that loads the menus
 def generate_featuredirectories_list
   directories_ordered_by_name = root_feature_directories.sort {|x,y| x.value.to_s <=> y.value.to_s }
   generate_full_list directories_ordered_by_name, :featuredirectories,
@@ -136,9 +93,6 @@ def generate_featuredirectories_list
     :list_filename => "featuredirectories_list.html"
 end
 
-
-# Helpler method to generate a full_list page of the specified objects with the
-# specified type.
 def generate_full_list(objects,type,options = {})
   defaults = { :list_title => "#{type.to_s.capitalize} List",
     :css_class => "class",
@@ -154,33 +108,28 @@ def generate_full_list(objects,type,options = {})
 end
 
 #
-# @note This method overrides YARD's default template class_list method.
+# FIXED: Using *args allows us to accept whatever arguments YARD passes (root, tree)
+# without needing to explicitly name the 'TreeContext' class, which is missing.
 #
-# The existing YARD 'Class List' search field contains all the YARD namespace objects.
-# We, however, do not want the Cucumber Namespace YARD Object (which holds the features,
-# tags, etc.) as it is a meta-object.
-#
-# This method removes the namespace from the root node, generates the class list,
-# and then adds it back into the root node.
-#
-def class_list(root = Registry.root, tree = TreeContext.new)
+def class_list(*args)
+  root = args.first || Registry.root
+
+  # Only interfere if we are looking at the root registry
   return super unless root == Registry.root
 
   cucumber_namespace = YARD::CodeObjects::Cucumber::CUCUMBER_NAMESPACE
-  root.instance_eval { children.delete cucumber_namespace }
-  out = super(root)
-  root.instance_eval { children.push cucumber_namespace }
-  out
+
+  # Safely hide the Cucumber namespace from the class list
+  if root.children.include?(cucumber_namespace)
+    root.children.delete(cucumber_namespace)
+    out = super # Implicitly passes *args
+    root.children.push(cucumber_namespace)
+    out
+  else
+    super
+  end
 end
 
-#
-# Generate a link to the 'All Features' in the features_list.html
-#
-# When there are no feature directories or multiple top-level feature directories
-# then we want to link to the 'Requirements' page
-#
-# When there are is just one feature directory then we want to link to that directory
-#
 def all_features_link
   features = Registry.all(:feature)
   count_with_examples = record_feature_scenarios(features)
@@ -191,15 +140,6 @@ def all_features_link
   end
 end
 
-#
-# This method is used to generate a feature directory. This template may call
-# this method as well to generate any child feature directories as well.
-#
-# @param directory [FeatureDirectory] this is the FeatureDirectory to display
-# @param padding [Fixnum] this is the pixel value to ident as we want to keep
-#    pushing in the padding to show the parent relationship
-# @param row [String] 'odd' or 'even' to correctly color the row
-#
 def directory_node(directory,padding,row)
   @directory = directory
   @padding = padding

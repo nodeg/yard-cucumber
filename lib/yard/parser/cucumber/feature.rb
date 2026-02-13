@@ -1,72 +1,71 @@
-module YARD::Parser::Cucumber
+# frozen_string_literal: true
 
-  class FeatureParser < YARD::Parser::Base
-    
-    #
-    # Each found feature found is creates a new FeatureParser
-    # 
-    # This logic was copied from the logic found in Cucumber to create the builder
-    # and then set up the formatter and parser. The difference is really the
-    # custom Cucumber::Parser::CityBuilder that is being used to parse the elements
-    # of the feature into YARD::CodeObjects.
-    # 
-    # @param [<String>] source containing the string conents of the feauture file
-    # @param [<String>] file the filename that contains the source
-    # 
-    def initialize(source, file = '(stdin)')
+require 'gherkin'
 
-      @builder = Cucumber::Parser::CityBuilder.new(file)
-      @tag_counts = {}
-      @parser = Gherkin::Parser.new(@builder)
+module YARD
+  module Parser
+    module Cucumber
+      class FeatureParser < YARD::Parser::Base
+        #
+        # Each found feature creates a new FeatureParser.
+        #
+        # @param [String] source containing the string contents of the feature file
+        # @param [String] file the filename that contains the source
+        #
+        def initialize(source, file = '(stdin)')
+          @source = source
+          @file = file
+          @feature = nil
+        end
 
-      @source = source
-      @file = file
+        #
+        # Parses the source using the modern Gherkin AST walker.
+        #
+        def parse
+          # MODERN GHERKIN API (v20+ / Cucumber 10+):
+          # Gherkin.from_source(source_text, options)
+          # We pass the URI inside the options hash.
 
-      @feature = nil
-    end
+          options = {
+            uri: @file,
+            include_source: false,
+            include_gherkin_document: true,
+            include_pickles: false
+          }
 
-    #
-    # When parse is called, the gherkin parser is executed and all the feature
-    # elements that are found are sent to the various methods in the 
-    # Cucumber::Parser::CityBuilder. The result of which is the feature element
-    # that contains all the scenarios, steps, etc. associated with that feature.
-    # 
-    # @see Cucumber::Parser::CityBuilder
-    def parse
-      begin
-        @parser.parse(@source)
-        @feature = @builder.ast
-        return nil if @feature.nil? # Nothing matched
-        
-        # The parser used the following keywords when parsing the feature
-        # @feature.language = @parser.i18n_language.get_code_keywords.map {|word| word }
-        
-      rescue Gherkin::ParserError => e
-        e.message.insert(0, "#{@file}: ")
-        warn e
+          # 1. Parse the raw Gherkin text into a stream of messages
+          messages = ::Gherkin.from_source(@source, options)
+
+          # 2. Extract the GherkinDocument (the root of the AST)
+          # Messages are an Enumerator, convert to Array to find the doc
+          document = messages.to_a.find(&:gherkin_document)&.gherkin_document
+
+          return nil unless document&.feature
+
+          # 3. Pass the AST to our CityBuilder to generate YARD objects
+          builder = ::Cucumber::Parser::CityBuilder.new(@file)
+          @feature = builder.process(document)
+
+          self
+        rescue => e
+          # Log the specific error but don't crash YARD
+          # This helps you debug which specific feature file is broken
+          log.warn "Failed to parse #{@file}: #{e.message}"
+          log.debug e.backtrace.join("\n")
+          nil
+        end
+
+        def tokenize
+          []
+        end
+
+        def enumerator
+          [@feature]
+        end
       end
-      
-      self
-    end
 
-    #
-    # This is not used as all the work is done in the parse method
-    # 
-    def tokenize
-      
+      # Register the parser
+      YARD::Parser::SourceParser.register_parser_type :feature, FeatureParser, 'feature'
     end
-
-    # 
-    # The only enumeration that can be done here is returning the feature itself
-    # 
-    def enumerator
-      [@feature]
-    end
-
   end
-
-  # 
-  # Register all feature files (.feature) to be processed with the above FeatureParser
-  YARD::Parser::SourceParser.register_parser_type :feature, FeatureParser, 'feature'
-
 end

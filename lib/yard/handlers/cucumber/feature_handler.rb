@@ -1,129 +1,130 @@
+# frozen_string_literal: true
+
 module YARD
   module Handlers
     module Cucumber
       class FeatureHandler < Base
-
-        handles CodeObjects::Cucumber::Feature
+        handles YARD::CodeObjects::Cucumber::Feature
 
         def process
-          #
-          # Features have already been created when they were parsed. So there
-          # is no need to process the feature further. Previously this is where
-          # feature steps were matched to step definitions and step definitions
-          # were matched to step transforms. This only worked if the feature
-          # files were were assured to be processed last which was accomplished
-          # by overriding YARD::SourceParser to make it load file in a similar
-          # order as Cucumber.
-          #
-          # As of YARD 0.7.0 this is no longer necessary as there are callbacks
-          # that can be registered after all the files have been loaded. That
-          # callback _after_parse_list_ is defined below and performs the
-          # functionality described above.
-          #
+          # No-op: Features are processed in the after_parse_list callback below.
+          # This ensures all step definitions and transforms are loaded before we try to link them.
         end
 
         #
-        # Register, once, when that when all files are finished to perform
-        # the final matching of feature steps to step definitions and step
-        # definitions to step transforms.
+        # Post-processing callback: Links Steps to StepDefinitions and Transforms
         #
-        YARD::Parser::SourceParser.after_parse_list do |files,globals|
-          # For every feature found in the Registry, find their steps and step
-          # definitions...
-          YARD::Registry.all(:feature).each do |feature|
-            log.debug "Finding #{feature.file} - steps, step definitions, and step transforms"
-            FeatureHandler.match_steps_to_step_definitions(feature)
-          end
+        YARD::Parser::SourceParser.after_parse_list do
+          # Reset cache to ensure we don't have stale data from previous runs (e.g. in server mode)
+          FeatureHandler.reset_cache
 
+          YARD::Registry.all(:feature).each do |feature|
+            log.debug "Linking steps for feature: #{feature.name}"
+            FeatureHandler.match_steps(feature)
+          end
         end
 
         class << self
+          def reset_cache
+            @step_definitions = nil
+            @step_transforms = nil
+          end
 
-          @@step_definitions = nil
-          @@step_transforms = nil
+          def match_steps(feature)
+            # Lazy load the cache
+            cache_definitions_and_transforms unless @step_definitions
 
-          def match_steps_to_step_definitions(statement)
-            # Create a cache of all of the step definitions and the step transforms
-            @@step_definitions = cache(:stepdefinition) unless @@step_definitions
-            @@step_transforms = cache(:steptransform) unless @@step_transforms
+            return unless feature
 
-            if statement
-              # For the background and the scenario, find the steps that have definitions
-              process_scenario(statement.background) if statement.background
+            process_scenario(feature.background) if feature.background
 
-              statement.scenarios.each do |scenario|
-                if scenario.outline?
-                  #log.info "Scenario Outline: #{scenario.value}"
-                  scenario.scenarios.each_with_index do |example,index|
-                    #log.info " * Processing Example #{index + 1}"
-                    process_scenario(example)
-                  end
-                else
-                  process_scenario(scenario)
-                end
+            feature.scenarios.each do |scenario|
+              if scenario.is_a?(YARD::CodeObjects::Cucumber::ScenarioOutline)
+                scenario.scenarios.each { |example| process_scenario(example) }
+              else
+                process_scenario(scenario)
               end
-
-
-            else
-              log.warn "Empty feature file.  A feature failed to process correctly or contains no feature"
             end
-
-          rescue YARD::Handlers::NamespaceMissingError
-          rescue Exception => exception
-            log.error "Skipping feature because an error has occurred."
-            log.debug "\n#{exception}\n#{exception.backtrace.join("\n")}\n"
+          rescue StandardError => e
+            log.warn "Failed to link steps for feature '#{feature.name}': #{e.message}"
+            log.debug e.backtrace.join("\n")
           end
 
-          #
-          # Store all comparable items with their compare_value as the key and the item as the value
-          # - Reject any compare values that contain escapes #{} as that means they have unpacked constants
-          #
-          def cache(type)
-            YARD::Registry.all(type).inject({}) do |hash,item|
-              hash[item.regex] = item if item.regex
-              hash
-            end
-          end
+          private
 
-          # process a scenario
           def process_scenario(scenario)
-            scenario.steps.each {|step| process_step(step) }
+            scenario.steps.each { |step| match_step(step) }
           end
 
-          # process a step
-          def process_step(step)
-            match_step_to_step_definition_and_transforms(step)
-          end
-
-          #
-          # Given a step object, attempt to match that step to a step
-          # transformation
-          #
-          def match_step_to_step_definition_and_transforms(step)
-            @@step_definitions.each_pair do |stepdef,stepdef_object|
-              stepdef_matches = step.value.match(stepdef)
-
-              if stepdef_matches
-                step.definition = stepdef_object
-                stepdef_matches[1..-1].each do |match|
-                  @@step_transforms.each do |steptrans,steptransform_object|
-                    if steptrans.match(match)
-                      step.transforms << steptransform_object
-                      steptransform_object.steps << step
-                    end
-                  end
-                end
-
-                # Step has been matched to step definition and step transforms
-                # TODO: If the step were to match again then we would be able to display ambigous step definitions
-                break
-
-              end
-
+          def match_step(step)
+            # Find the first matching step definition
+            match = @step_definitions.find do |regex, _stepdef|
+              step.value.match(regex)
             end
 
+            return unless match
+
+            regex, stepdef_object = match
+            step.definition = stepdef_object
+
+            # Now check for Transforms on captured arguments
+            match_data = step.value.match(regex)
+
+            # Iterate over captures (if any) to see if they match a Transform
+            if match_data && match_data.captures.any?
+              match_data.captures.each do |captured_value|
+                next unless captured_value # Skip nil captures
+
+                @step_transforms.each do |trans_regex, trans_obj|
+                  if captured_value.match(trans_regex)
+                    step.transforms << trans_obj
+                    trans_obj.steps << step
+                  end
+                end
+              end
+            end
           end
 
+          def cache_definitions_and_transforms
+            @step_definitions = {}
+            @step_transforms = {}
+
+            # Cache Step Definitions
+            YARD::Registry.all(:stepdefinition).each do |obj|
+              regex = value_to_regex(obj.value)
+              @step_definitions[regex] = obj if regex
+            end
+
+            # Cache Step Transforms
+            YARD::Registry.all(:steptransform).each do |obj|
+              regex = value_to_regex(obj.value)
+              @step_transforms[regex] = obj if regex
+            end
+          end
+
+          #
+          # Robustly converts a stored string value back to a Regexp object
+          #
+          def value_to_regex(value)
+            return nil unless value.is_a?(String)
+
+            # Clean the string if it looks like a regex source
+            clean_val = value.strip
+
+            # If it starts and ends with slash, strip them and ignore flags for now
+            if clean_val.start_with?('/') && clean_val.end_with?('/')
+              clean_val = clean_val[1..-2]
+            end
+
+            # If it starts with ^ or ends with $, those are valid in Regex.new
+
+            begin
+              Regexp.new(clean_val)
+            rescue RegexpError
+              log.warn "Invalid regex in Cucumber object: #{value}"
+              nil
+            end
+          end
         end
       end
     end

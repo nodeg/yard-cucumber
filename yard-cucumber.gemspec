@@ -1,68 +1,46 @@
-require File.dirname(__FILE__) + "/lib/yard-cucumber/version"
+# frozen_string_literal: true
 
-module CucumberInTheYARD
-  def self.show_version_changes(version)
-    date = ""
-    changes = []
-    grab_changes = false
+require_relative 'lib/yard-cucumber/version'
 
-    File.open("#{File.dirname(__FILE__)}/History.txt",'r') do |file|
-      while (line = file.gets) do
+Gem::Specification.new do |spec|
+  spec.name          = 'yard-cucumber'
+  spec.version       = CucumberInTheYARD::VERSION
+  spec.authors       = ['Franklin Webber']
+  spec.email         = ['franklin.webber@gmail.com']
 
-        if line =~ /^===\s*#{version.gsub('.','\.')}\s*\/\s*(.+)\s*$/
-          grab_changes = true
-          date = $1.strip
-        elsif line =~ /^===\s*.+$/
-          grab_changes = false
-        elsif grab_changes
-          changes = changes << line
-        end
-
-      end
-    end
-
-    { :date => date, :changes => changes }
-  end
-end
-
-Gem::Specification.new do |s|
-  s.name        = 'yard-cucumber'
-  s.version     = ::CucumberInTheYARD::VERSION
-  s.authors     = ["Franklin Webber"]
-  s.description = %{
+  spec.summary       = 'Cucumber Features in YARD'
+  spec.description   = <<~DESC
     YARD-Cucumber is a YARD extension that processes Cucumber Features, Scenarios, Steps,
-    Step Definitions, Transforms, and Tags and provides a documentation interface that allows you
-    easily view and investigate the test suite.  This tools hopes to bridge the gap of being able
-    to provide your feature descriptions to your Product Owners and Stakeholders.  }
-  s.summary     = "Cucumber Features in YARD"
-  s.email       = 'franklin.webber@gmail.com'
-  s.homepage    = "http://github.com/burtlo/yard-cucumber"
-  s.license     = 'MIT'
+    Step Definitions, Transforms, and Tags and provides a documentation interface.
+  DESC
 
-  s.platform    = Gem::Platform::RUBY
+  spec.homepage      = 'http://github.com/burtlo/yard-cucumber'
+  spec.license       = 'MIT'
+  spec.required_ruby_version = '>= 3.2'
 
-  changes = CucumberInTheYARD.show_version_changes(::CucumberInTheYARD::VERSION)
+  spec.metadata = {
+    'homepage_uri'    => spec.homepage,
+    'source_code_uri' => spec.homepage,
+    'changelog_uri'   => "#{spec.homepage}/blob/master/History.txt"
+  }
 
-  s.post_install_message = %{
-(::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::)
+  spec.files = Dir.chdir(__dir__) do
+    `git ls-files -z`.split("\x0").reject do |f|
+      (File.expand_path(f) == __FILE__) ||
+        f.start_with?(*%w[bin/ test/ spec/ features/ .git])
+    end
+  end
 
-  Thank you for installing yard-cucumber #{::CucumberInTheYARD::VERSION} / #{changes[:date]}.
+  spec.require_paths = ['lib']
 
-  Changes:
-  #{changes[:changes].collect{|change| "  #{change}"}.join("")}
-(::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::) (::)
+  spec.add_dependency 'cucumber', '~> 10.2'
+  spec.add_dependency 'yard',     '~> 0.9'
 
-}
+  # If the gem uses redcarpet for rendering markdown inside YARD:
+  spec.add_dependency 'redcarpet', '~> 3.6'
 
-  s.add_development_dependency 'rake', '~> 10'
-
-  s.add_dependency 'gherkin', '>= 4.0', '< 6.0'
-  s.add_dependency 'cucumber', '>= 2.0', '< 4.0'
-  s.add_dependency 'yard', '~> 0.8', '>= 0.8.1'
-
-  s.rubygems_version   = "1.3.7"
-  s.files            = `git ls-files`.split("\n")
-  s.extra_rdoc_files = ["README.md", "History.txt"]
-  s.rdoc_options     = ["--charset=UTF-8"]
-  s.require_path     = "lib"
+  # DEVELOPMENT DEPENDENCIES
+  spec.add_development_dependency 'rake', '~> 13.3'
+  spec.add_development_dependency 'webrick'
+  spec.add_development_dependency 'rackup'
 end

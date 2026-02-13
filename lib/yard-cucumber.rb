@@ -1,48 +1,57 @@
+# frozen_string_literal: true
+
 require 'yard'
-require 'cucumber/platform'
-require 'gherkin/parser'
+require 'gherkin'
 
-require File.dirname(__FILE__) + "/yard-cucumber/version.rb"
+require_relative 'yard-cucumber/version'
 
-require File.dirname(__FILE__) + "/yard/code_objects/cucumber/base.rb"
-require File.dirname(__FILE__) + "/yard/code_objects/cucumber/namespace_object.rb"
-require File.dirname(__FILE__) + "/yard/code_objects/cucumber/feature.rb"
-require File.dirname(__FILE__) + "/yard/code_objects/cucumber/scenario_outline.rb"
-require File.dirname(__FILE__) + "/yard/code_objects/cucumber/scenario.rb"
-require File.dirname(__FILE__) + "/yard/code_objects/cucumber/step.rb"
-require File.dirname(__FILE__) + "/yard/code_objects/cucumber/tag.rb"
+# ----------------------------------------------------------------------
+# Domain Object Model (YARD CodeObjects)
+# ----------------------------------------------------------------------
+require_relative 'yard/code_objects/cucumber/base'
+require_relative 'yard/code_objects/cucumber/namespace_object'
+require_relative 'yard/code_objects/cucumber/feature'
+require_relative 'yard/code_objects/cucumber/scenario_outline'
+require_relative 'yard/code_objects/cucumber/scenario'
+require_relative 'yard/code_objects/cucumber/step'
+require_relative 'yard/code_objects/cucumber/tag'
 
-require File.dirname(__FILE__) + "/cucumber/city_builder.rb"
+require_relative 'yard/code_objects/step_transformer'
+require_relative 'yard/code_objects/step_definition'
+require_relative 'yard/code_objects/step_transform'
 
-require File.dirname(__FILE__) + "/yard/code_objects/step_transformer.rb"
-require File.dirname(__FILE__) + "/yard/code_objects/step_definition.rb"
-require File.dirname(__FILE__) + "/yard/code_objects/step_transform.rb"
+# ----------------------------------------------------------------------
+# Parsers & Builders
+# ----------------------------------------------------------------------
+require_relative 'cucumber/city_builder'
+require_relative 'yard/parser/cucumber/feature'
 
-require File.dirname(__FILE__) + "/yard/parser/cucumber/feature.rb"
+# ----------------------------------------------------------------------
+# Handlers (Step Definition Parsing)
+# ----------------------------------------------------------------------
+# Handlers for Cucumber Feature files
+require_relative 'yard/handlers/cucumber/base'
+require_relative 'yard/handlers/cucumber/feature_handler'
+require_relative 'yard/handlers/step_definition_handler'
+require_relative 'yard/handlers/step_transform_handler'
+require_relative 'yard/handlers/constant_transform_handler'
 
-require File.dirname(__FILE__) + "/yard/handlers/cucumber/base.rb"
-require File.dirname(__FILE__) + "/yard/handlers/cucumber/feature_handler.rb"
+require_relative 'yard/templates/helpers/base_helper'
 
-if RUBY19
-  require File.dirname(__FILE__) + "/yard/handlers/step_definition_handler.rb"
-  require File.dirname(__FILE__) + "/yard/handlers/step_transform_handler.rb"
-  require File.dirname(__FILE__) + "/yard/handlers/constant_transform_handler.rb"
-end
+# ----------------------------------------------------------------------
+# Server Components
+# ----------------------------------------------------------------------
+require_relative 'yard/server/adapter'
+require_relative 'yard/server/commands/list_command'
+require_relative 'yard/server/router'
 
-require File.dirname(__FILE__) + "/yard/handlers/legacy/step_definition_handler.rb"
-require File.dirname(__FILE__) + "/yard/handlers/legacy/step_transform_handler.rb"
+# ----------------------------------------------------------------------
+# Template Registration
+# ----------------------------------------------------------------------
 
-#require File.dirname(__FILE__) + "/yard/parser/source_parser.rb"
-require File.dirname(__FILE__) + "/yard/templates/helpers/base_helper.rb"
+# Register the location of the template plugin
+YARD::Templates::Engine.register_template_path File.join(__dir__, 'templates')
 
-require File.dirname(__FILE__) + "/yard/server/adapter.rb"
-require File.dirname(__FILE__) + "/yard/server/commands/list_command.rb"
-require File.dirname(__FILE__) + "/yard/server/router.rb"
-
-
-# This registered template works for yardoc
-YARD::Templates::Engine.register_template_path File.dirname(__FILE__) + '/templates'
-
-# The following static paths and templates are for yard server
-YARD::Server.register_static_path File.dirname(__FILE__) + "/templates/default/fulldoc/html"
-YARD::Server.register_static_path File.dirname(__FILE__) + "/docserver/default/fulldoc/html"
+# Register static paths for the YARD server
+YARD::Server.register_static_path File.join(__dir__, 'templates/default/fulldoc/html')
+YARD::Server.register_static_path File.join(__dir__, 'docserver/default/fulldoc/html')
